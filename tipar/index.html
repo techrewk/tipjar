@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Base TipJar</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;margin:0;background:#0b0f14;color:#e6edf3}
+    .wrap{max-width:880px;margin:auto;padding:24px}
+    .card{background:#0f1520;border:1px solid #1f2a3a;border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    input,textarea,button{border-radius:10px;border:1px solid #2a3a52;background:#0b1220;color:#e6edf3;padding:10px 12px}
+    input,textarea{flex:1;min-width:200px}
+    button{cursor:pointer;font-weight:600}
+    button.primary{background:#0ea5e9;border-color:#0787c3}
+    button.ghost{background:transparent;border-color:#2a3a52}
+    .pill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid #2a3a52;background:#0b1220;display:inline-block}
+    .muted{color:#93a4b3}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+    .tip{border:1px solid #233047;border-radius:12px;padding:12px;background:#0b1220}
+    a{color:#7dd3fc;text-decoration:none}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+  </style>
+  <script src="https://unpkg.com/ethers@6.13.2/dist/ethers.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <h1>Base TipJar</h1>
+  <div class="card">
+    <div class="row">
+      <button id="connect" class="primary">Connect wallet</button>
+      <div id="addr" class="pill mono">Not connected</div>
+      <div id="net" class="pill">–</div>
+      <div id="owner" class="pill">Owner: –</div>
+      <div id="stats" class="pill">Total: 0 ETH • 0 tips</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Send a tip</h3>
+    <div class="row">
+      <input id="amount" placeholder="Amount in ETH (e.g. 0.001)" />
+      <textarea id="message" maxlength="200" placeholder="Say something nice (max 200 chars)"></textarea>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="send" class="primary">Send tip</button>
+      <div class="muted">Tips are on-chain. Don’t post secrets.</div>
+    </div>
+  </div>
+
+  <div class="card" id="ownerBox" style="display:none">
+    <h3>Owner actions</h3>
+    <div class="row">
+      <input id="withdrawTo" placeholder="Withdraw to (0x...)" />
+      <input id="withdrawAmt" placeholder="Amount in ETH" />
+      <button id="withdrawBtn" class="ghost">Withdraw</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="align-items:center;justify-content:space-between">
+      <h3 style="margin:0">Recent tips</h3>
+      <button id="refresh" class="ghost">Refresh</button>
+    </div>
+    <div id="tips" class="grid" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<script>
+(async function () {
+  const CONTRACT_ADDRESS = "0xe688F8016ACdf3fF73170E5D43F683D43844f5f8";
+  const ABI =[
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [],
+		"name": "EmptyTip",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "NotOwner",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "Reentrant",
+		"type": "error"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "message_",
+				"type": "string"
+			}
+		],
+		"name": "tip",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "TooLong",
+		"type": "error"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "from",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "message",
+				"type": "string"
+			}
+		],
+		"name": "Tipped",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address payable",
+				"name": "to",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "withdraw",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "Withdrawn",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "offset",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "limit",
+				"type": "uint256"
+			}
+		],
+		"name": "getTips",
+		"outputs": [
+			{
+				"components": [
+					{
+						"internalType": "address",
+						"name": "from",
+						"type": "address"
+					},
+					{
+						"internalType": "uint96",
+						"name": "amount",
+						"type": "uint96"
+					},
+					{
+						"internalType": "uint64",
+						"name": "timestamp",
+						"type": "uint64"
+					},
+					{
+						"internalType": "string",
+						"name": "message",
+						"type": "string"
+					}
+				],
+				"internalType": "struct TipJar.Tip[]",
+				"name": "out",
+				"type": "tuple[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "MAX_MESSAGE_CHARS",
+		"outputs": [
+			{
+				"internalType": "uint16",
+				"name": "",
+				"type": "uint16"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "tipsCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "totalTips",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+],
+    {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"string","name":"message","type":"string"}],"name":"Tipped","type":"event"},
+    {"anonymous":false,"inputs":[{"indexed":false,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"Withdrawn","type":"event"}
+  ];
+
+  const BASE_MAINNET = { chainId: "0x2105", chainName: "Base", nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},
+                         rpcUrls:["https://mainnet.base.org"], blockExplorerUrls:["https://basescan.org"] };
+
+  const $ = (id) => document.getElementById(id);
+  const fmtEth = (wei) => ethers.formatEther(wei);
+  const short = (a) => a ? a.slice(0,6)+"…"+a.slice(-4) : "–";
+  const time = (t) => new Date(Number(t)*1000).toLocaleString();
+
+  let provider, signer, contract, user, isOwner=false;
+
+  async function ensureBase() {
+    if (!window.ethereum) throw new Error("MetaMask required");
+    try {
+      await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: BASE_MAINNET.chainId }]});
+    } catch (e) {
+      if (e.code === 4902) {
+        await window.ethereum.request({ method: "wallet_addEthereumChain", params: [BASE_MAINNET]});
+      } else { throw e; }
+    }
+  }
+
+  async function connect() {
+    await ensureBase();
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    user = await signer.getAddress();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+    $("addr").textContent = short(user);
+    $("net").textContent = "Base mainnet";
+    const ownerAddr = await contract.owner();
+    $("owner").textContent = "Owner: " + short(ownerAddr);
+    isOwner = ownerAddr.toLowerCase() === user.toLowerCase();
+    $("ownerBox").style.display = isOwner ? "block" : "none";
+
+    await refreshStats();
+    await loadTips();
+  }
+
+  async function refreshStats() {
+    const [sum, count] = await Promise.all([contract.totalTips(), contract.tipsCount()]);
+    $("stats").textContent = `Total: ${fmtEth(sum)} ETH • ${count} tips`;
+  }
+
+  async function sendTip() {
+    const amt = $("amount").value.trim();
+    const msg = $("message").value.trim();
+    if (!amt || Number(amt) <= 0) return alert("Enter amount in ETH");
+    if (msg.length > 200) return alert("Message too long (200 max)");
+
+    const tx = await contract.tip(msg, { value: ethers.parseEther(amt) });
+    $("send").disabled = true; $("send").textContent = "Sending…";
+    await tx.wait();
+    $("send").disabled = false; $("send").textContent = "Send tip";
+    $("message").value = ""; $("amount").value = "";
+    await refreshStats(); await loadTips();
+  }
+
+  async function loadTips() {
+    const page = await contract.getTips(0, 20); // latest 20 (from start)
+    // show newest first
+    const tips = [...page].reverse();
+    $("tips").innerHTML = tips.map(t => `
+      <div class="tip">
+        <div class="mono">${short(t.from)} • ${fmtEth(t.amount)} ETH</div>
+        <div class="muted" style="margin:6px 0">${time(t.timestamp)}</div>
+        <div>${escapeHtml(t.message || "")}</div>
+        <div style="margin-top:6px"><a target="_blank" href="https://basescan.org/address/${t.from}">View sender</a></div>
+      </div>
+    `).join("");
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  }
+
+  async function withdraw() {
+    if (!isOwner) return alert("Only owner");
+    const to = $("withdrawTo").value.trim();
+    const amt = $("withdrawAmt").value.trim();
+    if (!to || !to.startsWith("0x") || to.length !== 42) return alert("Enter a valid address");
+    if (!amt || Number(amt) <= 0) return alert("Enter amount in ETH");
+
+    const tx = await contract.withdraw(to, ethers.parseEther(amt));
+    $("withdrawBtn").disabled = true; $("withdrawBtn").textContent = "Withdrawing…";
+    await tx.wait();
+    $("withdrawBtn").disabled = false; $("withdrawBtn").textContent = "Withdraw";
+    await refreshStats();
+  }
+
+  $("connect").onclick = connect;
+  $("send").onclick = sendTip;
+  $("refresh").onclick = loadTips;
+  $("withdrawBtn").onclick = withdraw;
+})();
+</script>
+</body>
+</html>
