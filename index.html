@@ -1,5 +1,4 @@
-
-		<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -22,12 +21,15 @@
     a{color:#7dd3fc;text-decoration:none}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
   </style>
-  <!-- Use ethers UMD build (browser safe!) -->
+
+  <!-- ethers browser build -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
 </head>
+
 <body>
 <div class="wrap">
   <h1>Base TipJar</h1>
+
   <div class="card">
     <div class="row">
       <button id="connect" class="primary">Connect wallet</button>
@@ -67,29 +69,46 @@
     <div id="tips" class="grid" style="margin-top:12px"></div>
   </div>
 </div>
+
+
 <script>
 (async function () {
+
+  /* ✅ YOUR CONTRACT ADDRESS HERE */
   const CONTRACT_ADDRESS = "0xe688F8016ACdf3fF73170E5D43F683D43844f5f8";
+
   const ABI = [
     {"inputs":[],"stateMutability":"nonpayable","type":"constructor"},
     {"inputs":[],"name":"EmptyTip","type":"error"},
     {"inputs":[],"name":"NotOwner","type":"error"},
     {"inputs":[],"name":"Reentrant","type":"error"},
-    {"inputs":[{"internalType":"string","name":"message_","type":"string"}],
-    "name":"tip","outputs":[],"stateMutability":"payable","type":"function"},
+    {"inputs":[{"internalType":"string","name":"message_","type":"string"}],"name":"tip","outputs":[],"stateMutability":"payable","type":"function"},
     {"inputs":[],"name":"TooLong","type":"error"},
     {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"string","name":"message","type":"string"}],"name":"Tipped","type":"event"},
     {"inputs":[{"internalType":"address payable","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"},
     {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"Withdrawn","type":"event"},
-    {"inputs":[{"internalType":"uint256","name":"offset","type":"uint256"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"getTips","outputs":[{"components":[{"internalType":"address","name":"from","type":"address"},{"internalType":"uint96","name":"amount","type":"uint96"},{"internalType":"uint64","name":"timestamp","type":"uint64"},{"internalType":"string","name":"message","type":"string"}],"internalType":"struct TipJar.Tip[]","name":"out","type":"tuple[]"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"uint256","name":"offset","type":"uint256"},{"internalType":"uint256","name":"limit","type":"uint256"}],
+     "name":"getTips",
+     "outputs":[{"components":[
+        {"internalType":"address","name":"from","type":"address"},
+        {"internalType":"uint96","name":"amount","type":"uint96"},
+        {"internalType":"uint64","name":"timestamp","type":"uint64"},
+        {"internalType":"string","name":"message","type":"string"}],
+        "internalType":"struct TipJar.Tip[]","name":"out","type":"tuple[]"}],
+      "stateMutability":"view","type":"function"},
     {"inputs":[],"name":"MAX_MESSAGE_CHARS","outputs":[{"internalType":"uint16","name":"","type":"uint16"}],"stateMutability":"view","type":"function"},
     {"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
     {"inputs":[],"name":"tipsCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
     {"inputs":[],"name":"totalTips","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
   ];
 
-  const BASE_MAINNET = { chainId: "0x2105", chainName: "Base", nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},
-                         rpcUrls:["https://mainnet.base.org"], blockExplorerUrls:["https://basescan.org"] };
+  const BASE_MAINNET = {
+    chainId: "0x2105",
+    chainName: "Base",
+    nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},
+    rpcUrls:["https://mainnet.base.org"],
+    blockExplorerUrls:["https://basescan.org"]
+  };
 
   const $ = (id) => document.getElementById(id);
   const fmtEth = (wei) => ethers.formatEther(wei);
@@ -97,6 +116,7 @@
   const time = (t) => new Date(Number(t)*1000).toLocaleString();
 
   let provider, signer, contract, user, isOwner=false;
+
 
   async function ensureBase() {
     if (!window.ethereum) throw new Error("MetaMask required");
@@ -109,6 +129,7 @@
     }
   }
 
+
   async function connect() {
     await ensureBase();
     provider = new ethers.BrowserProvider(window.ethereum);
@@ -119,6 +140,7 @@
 
     $("addr").textContent = short(user);
     $("net").textContent = "Base mainnet";
+
     const ownerAddr = await contract.owner();
     $("owner").textContent = "Owner: " + short(ownerAddr);
     isOwner = ownerAddr.toLowerCase() === user.toLowerCase();
@@ -128,54 +150,72 @@
     await loadTips();
   }
 
+
   async function refreshStats() {
-    // Fix destructuring: use individual awaits instead of array destructure
     const sum = await contract.totalTips();
     const count = await contract.tipsCount();
     $("stats").textContent = `Total: ${fmtEth(sum)} ETH • ${count} tips`;
   }
+
 
   async function sendTip() {
     const amt = $("amount").value.trim();
     const msg = $("message").value.trim();
     if (!amt || Number(amt) <= 0) return alert("Enter amount in ETH");
     if (msg.length > 200) return alert("Message too long (200 max)");
+
     const tx = await contract.tip(msg, { value: ethers.parseEther(amt) });
     $("send").disabled = true; $("send").textContent = "Sending…";
     await tx.wait();
     $("send").disabled = false; $("send").textContent = "Send tip";
     $("message").value = ""; $("amount").value = "";
-    await refreshStats(); await loadTips();
+
+    await refreshStats();
+    await loadTips();
   }
 
+
   async function loadTips() {
-    const page = await contract.getTips(0, 20); // latest 20 (from start)
-    // show newest first
+    const page = await contract.getTips(0, 20);
     const tips = [...page].reverse();
+
     $("tips").innerHTML = tips.map(t => `
       <div class="tip">
         <div class="mono">${short(t.from)} • ${fmtEth(t.amount)} ETH</div>
         <div class="muted" style="margin:6px 0">${time(t.timestamp)}</div>
         <div>${escapeHtml(t.message || "")}</div>
-        <div style="margin-top:6px"><a target="_blank" href="https://basescan.org/address/${t.from}">View sender</a></div>
+        <div style="margin-top:6px">
+          <a target="_blank" href="https://basescan.org/address/${t.from}">View sender</a>
+        </div>
       </div>
     `).join("");
   }
 
+
+  /* ✅ FIXED helper */
   function escapeHtml(s){
-    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'''}[m]));
+    return s.replace(/[&<>"']/g, m => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[m]));
   }
+
 
   async function withdraw() {
     if (!isOwner) return alert("Only owner");
     const to = $("withdrawTo").value.trim();
     const amt = $("withdrawAmt").value.trim();
-    if (!to || !to.startsWith("0x") || to.length !== 42) return alert("Enter a valid address");
+    if (!to || !to.startsWith("0x") || to.length !== 42) return alert("Enter valid address");
     if (!amt || Number(amt) <= 0) return alert("Enter amount in ETH");
+
     const tx = await contract.withdraw(to, ethers.parseEther(amt));
     $("withdrawBtn").disabled = true; $("withdrawBtn").textContent = "Withdrawing…";
     await tx.wait();
     $("withdrawBtn").disabled = false; $("withdrawBtn").textContent = "Withdraw";
+
     await refreshStats();
   }
 
@@ -183,8 +223,10 @@
   $("send").onclick = sendTip;
   $("refresh").onclick = loadTips;
   $("withdrawBtn").onclick = withdraw;
+
 })();
 </script>
+
 </body>
 </html>
 
